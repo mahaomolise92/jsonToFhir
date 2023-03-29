@@ -232,7 +232,6 @@ public class Main {
                         Identifier identifier = new Identifier();
                         identifier.setValue(fieldValue);
                         patient.addIdentifier(identifier);
-                        System.out.println("hela Mahao " + identifier);
                     } else {
                         List<Base> values = new ArrayList<>();
                         values.add(new StringType(fieldValue));
