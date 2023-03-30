@@ -1,23 +1,20 @@
 package org.example;
 import ca.uhn.fhir.context.FhirContext;
-import ca.uhn.fhir.model.api.IElement;
+import ca.uhn.fhir.fhirpath.IFhirPath;
+import ca.uhn.fhir.parser.IParser;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import org.apache.commons.lang3.StringUtils;
-import org.hl7.fhir.r4.hapi.fluentpath.FhirPathR4;
+import org.hl7.fhir.instance.model.api.IBase;
 import org.hl7.fhir.r4.model.*;
-import ca.uhn.fhir.parser.IParser;
-import ca.uhn.fhir.parser.JsonParser;
-import org.hl7.fhir.r5.hapi.fhirpath.FhirPathR5;
+import org.hl7.fhir.r4.utils.FHIRPathEngine;
 import org.json.JSONArray;
 import org.json.JSONObject;
-import org.hl7.fhir.instance.model.api.IBase;
-import org.hl7.fhir.r4.model.Element;
-import ca.uhn.fhir.fhirpath.IFhirPath;
 
 
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -38,7 +35,7 @@ public class Main {
                 "1234567890"
         );
 
-        String configReference = "{\"fields\": [{\"fieldName\": \"patientId\",\"fhirPath\": \"Patient.identifier\"},{\"fieldName\": \"given_name\",\"fhirPath\": \"Patient.name.given\"},{\"fieldName\": \"family_name\",\"fhirPath\": \"Patient.name.family\"},{\"fieldName\": \"gender\",\"fhirPath\": \"Patient.gender\"},{\"fieldName\": \"dob\",\"fhirPath\": \"Patient.birthDate\"},{\"fieldName\": \"city\",\"fhirPath\": \"Patient.address.city\"}]}";
+//        String configReference = "{\"fields\": [{\"fieldName\": \"patientId\",\"fhirPath\": \"Patient.identifier\"},{\"fieldName\": \"given_name\",\"fhirPath\": \"name.given\"},{\"fieldName\": \"family_name\",\"fhirPath\": \"Patient.name.family\"},{\"fieldName\": \"gender\",\"fhirPath\": \"Patient.gender\"},{\"fieldName\": \"dob\",\"fhirPath\": \"Patient.birthDate\"},{\"fieldName\": \"city\",\"fhirPath\": \"Patient.address.city\"}]}";
         String conf = "{\"fields\": [\n" +
                 "    {\n" +
                 "      \"fieldName\": \"aux_id\",\n" +
@@ -197,13 +194,15 @@ public class Main {
                 "      \"fhirPath\": \"Patient.identifier\"\n" +
                 "    }\n" +
                 "  ]}";
-        Patient patient = mapToPatientFhir(patientRecord, conf);
-        Bundle bundle = new Bundle();
-        bundle.setType(Bundle.BundleType.TRANSACTION);
-        bundle.addEntry().setResource(patient).getRequest().setMethod(Bundle.HTTPVerb.POST).setUrl("Patient");
-        for (Bundle.BundleEntryComponent entry : bundle.getEntry()) {
-            System.out.println(entry.getResource().getClass().getSimpleName() + " ID: " + entry.getResource().getId());
-        }
+            Patient patient = mapToPatientFhir(patientRecord, conf);
+            // Create a FHIR JSON parser
+            FhirContext ctx = FhirContext.forR4();
+
+            // Serialize the patient object to FHIR JSON
+            String patientJson = ctx.newJsonParser().setPrettyPrint(true).encodeResourceToString(patient);
+
+            // Display the FHIR JSON string
+            System.out.println(patientJson);
 
 
     }
@@ -225,31 +224,59 @@ public class Main {
 
             if (fieldValue != null) {
                 String fhirPath = getFhirPath(fieldName, config);
-//                System.out.println("Path " + fhirPath);
-                if (fhirPath != null) {
-                    if (fhirPath.equals("Patient.identifier")) {
+                System.out.println("Path " + fhirPath);
 
-                        Identifier identifier = new Identifier();
-                        identifier.setValue(fieldValue);
-                        patient.addIdentifier(identifier);
-                        System.out.println("hela Mahao " + identifier);
-                    } else {
-                        List<Base> values = new ArrayList<>();
-                        values.add(new StringType(fieldValue));
-//                        System.out.println(values);
-                        IFhirPath fhirPathElement = fhirContext.newFhirPath();
-                        IParser parser = fhirContext.newJsonParser();
-                        List<IBase> element = fhirPathElement.evaluate(patient, fhirPath, IBase.class);
-                        System.out.println(fhirPath);
-                        if (element != null) {
-                            Extension extension = new Extension();
-                            extension.setUrl(fhirPath);
-                            extension.setValue(new StringType(fieldValue));
-//                             element.getExtension().add(extension);
-                        }
+                if (fhirPath != null) {
+
+                    FhirContext ctx = FhirContext.forR4();
+                    IFhirPath fhirPathEngine = ctx.newFhirPath();
+                    List<Base> matchingElements = fhirPathEngine.evaluate(patient, fhirPath, Base.class);
+                    System.out.println(matchingElements + " " + fhirPath);
+//                    for (Base matchingElement : matchingElements) {
+//                        if (matchingElement instanceof StringType) {
+//                            ((StringType) matchingElement).setValue("newValue");
+//                        }
+//                    }
+
+                    switch (fhirPath) {
+                        case "Patient.identifier":
+                            Identifier identifier = new Identifier();
+                            identifier.setValue(fieldValue);
+                            patient.addIdentifier(identifier);
+                            System.out.println("I am in the identifier");
+                            break;
+                        case "name.given":
+                            HumanName name = new HumanName();
+                            name.addGiven(fieldValue);
+                            patient.addName(name);
+                            System.out.println("in the Human name");
+                            break;
+                        case "name.family":
+                            HumanName namee = new HumanName();
+                            namee.setFamily(fieldValue);
+                            patient.addName(namee);
+                            System.out.println("in the Human name");
+                            break;
+                        case "address.city":
+                            Address address = new Address();
+                            address.setCity(fieldValue);
+                            patient.addAddress(address);
+                            break;
+                        case "birthDate":
+                            DateType birthDate = new DateType(fieldValue);
+                            patient.setBirthDateElement(birthDate);
+                            break;
+                        default:
+                            List<Base> values = new ArrayList<>();
+                            values.add(new StringType(fieldValue));
+                            IFhirPath fhirPathElement = fhirContext.newFhirPath();
+                            IParser parser = fhirContext.newJsonParser();
+                            List<IBase> elements = fhirPathElement.evaluate(patient, fhirPath, IBase.class);
+                            break;
                     }
                 }
             }
+
         }
 
         return patient;
