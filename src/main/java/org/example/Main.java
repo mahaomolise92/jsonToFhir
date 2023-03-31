@@ -2,6 +2,7 @@ package org.example;
 import ca.uhn.fhir.context.FhirContext;
 import ca.uhn.fhir.fhirpath.IFhirPath;
 import ca.uhn.fhir.parser.IParser;
+import ca.uhn.fhir.rest.annotation.Create;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import org.apache.commons.lang3.StringUtils;
 import org.hl7.fhir.instance.model.api.IBase;
@@ -24,15 +25,27 @@ import static org.apache.commons.text.WordUtils.capitalizeFully;
 
 public class Main {
     public static void main(String[] args) {
-        PatientRecord patientRecord = new PatientRecord(
-                "patient-123",
+        CustomDemographicData demographicData = new CustomDemographicData(
+                "123",
                 "John",
                 "Doe",
                 "Male",
                 "1980-01-01",
                 "New York",
-                "+1-555-555-5555",
-                "1234567890"
+                "555-555-5555",
+                "ABC123"
+        );
+
+        SourceId sourceId = new SourceId(
+                "123",
+                "Some Facility",
+                "Some Patient"
+        );
+
+        PatientRecord patientRecord = new PatientRecord(
+                "456",
+                sourceId,
+                demographicData
         );
 
 //        String configReference = "{\"fields\": [{\"fieldName\": \"patientId\",\"fhirPath\": \"Patient.identifier\"},{\"fieldName\": \"given_name\",\"fhirPath\": \"name.given\"},{\"fieldName\": \"family_name\",\"fhirPath\": \"Patient.name.family\"},{\"fieldName\": \"gender\",\"fhirPath\": \"Patient.gender\"},{\"fieldName\": \"dob\",\"fhirPath\": \"Patient.birthDate\"},{\"fieldName\": \"city\",\"fhirPath\": \"Patient.address.city\"}]}";
@@ -195,7 +208,7 @@ public class Main {
                 "    }\n" +
                 "  ]}";
             Patient patient = mapToPatientFhir(patientRecord, conf);
-            // Create a FHIR JSON parser
+//             Create a FHIR JSON parser
             FhirContext ctx = FhirContext.forR4();
 
             // Serialize the patient object to FHIR JSON
@@ -211,85 +224,90 @@ public class Main {
         JSONObject config = new JSONObject(configReference);
         Patient patient = new Patient();
         FhirContext fhirContext = FhirContext.forR4();
+        CustomDemographicData demographicData = patientRecord.demographicData();
 
-        for (Field field : patientRecord.getClass().getDeclaredFields()) {
+        for (Field field : PatientRecord.class.getDeclaredFields()) {
             String fieldName = field.getName();
             String fieldValue = null;
             try {
-                fieldValue = (String) field.get(patientRecord);
-//                System.out.println(fieldValue);
+                if (fieldName.equals("demographicData")) {
+                    for (Field demoField : CustomDemographicData.class.getDeclaredFields()) {
+                        String demoFieldName = demoField.getName();
+                        fieldValue = (String) demoField.get(demographicData);
+                        if (fieldValue != null) {
+                            String fhirPath = getFhirPath(demoFieldName, config);
+                            if (fhirPath != null) {
+                                processField(patient, fieldValue, fhirPath);
+                            }
+                        }
+                    }
+                } else if (fieldName.equals("patientId")) {
+                    fieldValue = (String) field.get(patientRecord);
+                    System.out.println("this is a patient Id " + fieldValue);
+                    Identifier identifier = new Identifier();
+                    identifier.setValue(fieldValue);
+                    patient.addIdentifier(identifier);
+
+                } else if (fieldName.equals("sourceId")) {
+                        //to be implemented
+                } else {
+                    fieldValue = (String) field.get(patientRecord);
+                    if (fieldValue != null) {
+                        System.out.println(fieldName + " " + fieldValue);
+                        String fhirPath = getFhirPath(fieldName, config);
+                        if (fhirPath != null) {
+                            processField(patient, fieldValue, fhirPath);
+                        }
+                    }
+                }
             } catch (IllegalAccessException e) {
                 e.printStackTrace();
             }
-
-            if (fieldValue != null) {
-                String fhirPath = getFhirPath(fieldName, config);
-                System.out.println("Path " + fhirPath);
-
-                if (fhirPath != null) {
-
-                    FhirContext ctx = FhirContext.forR4();
-                    IFhirPath fhirPathEngine = ctx.newFhirPath();
-                    List<Base> matchingElements = fhirPathEngine.evaluate(patient, fhirPath, Base.class);
-                    System.out.println(matchingElements + " " + fhirPath);
-//                    for (Base matchingElement : matchingElements) {
-//                        if (matchingElement instanceof StringType) {
-//                            ((StringType) matchingElement).setValue("newValue");
-//                        }
-//                    }
-
-                    switch (fhirPath) {
-                        case "Patient.identifier":
-                            Identifier identifier = new Identifier();
-                            identifier.setValue(fieldValue);
-                            patient.addIdentifier(identifier);
-                            System.out.println("I am in the identifier");
-                            break;
-                        case "name.given":
-                            HumanName name = new HumanName();
-                            name.addGiven(fieldValue);
-                            patient.addName(name);
-                            System.out.println("in the Human name");
-                            break;
-                        case "name.family":
-                            HumanName namee = new HumanName();
-                            namee.setFamily(fieldValue);
-                            patient.addName(namee);
-                            System.out.println("in the Human name");
-                            break;
-                        case "address.city":
-                            Address address = new Address();
-                            address.setCity(fieldValue);
-                            patient.addAddress(address);
-                            break;
-                        case "birthDate":
-                            DateType birthDate = new DateType(fieldValue);
-                            patient.setBirthDateElement(birthDate);
-                            break;
-                        default:
-                            List<Base> values = new ArrayList<>();
-                            values.add(new StringType(fieldValue));
-                            IFhirPath fhirPathElement = fhirContext.newFhirPath();
-                            IParser parser = fhirContext.newJsonParser();
-                            List<IBase> elements = fhirPathElement.evaluate(patient, fhirPath, IBase.class);
-                            break;
-                    }
-                }
-            }
-
         }
 
         return patient;
     }
 
-
-
+    private static void processField(Patient patient, String fieldValue, String fhirPath) {
+        switch (fhirPath) {
+            case "Patient.identifier":
+                Identifier identifier = new Identifier();
+                identifier.setValue(fieldValue);
+                patient.addIdentifier(identifier);
+                break;
+            case "name.given":
+                HumanName name = new HumanName();
+                name.addGiven(fieldValue);
+                patient.addName(name);
+                break;
+            case "name.family":
+                HumanName namee = new HumanName();
+                namee.setFamily(fieldValue);
+                patient.addName(namee);
+                break;
+            case "address.city":
+                Address address = new Address();
+                address.setCity(fieldValue);
+                patient.addAddress(address);
+                break;
+            case "birthDate":
+                DateType birthDate = new DateType(fieldValue);
+                patient.setBirthDateElement(birthDate);
+                break;
+            default:
+                List<Base> values = new ArrayList<>();
+                values.add(new StringType(fieldValue));
+                IFhirPath fhirPathElement = FhirContext.forR4().newFhirPath();
+                IParser parser = FhirContext.forR4().newJsonParser();
+                List<IBase> elements = fhirPathElement.evaluate(patient, fhirPath, IBase.class);
+                break;
+        }
+    }
 
     private static String getFhirPath(String fieldName, JSONObject config) {
         JSONArray fields = config.getJSONArray("fields");
         for (int i = 0; i < fields.length(); i++) {
             JSONObject field = fields.getJSONObject(i);
-//            System.out.println(capitalizeFully(field.getString("fieldName")) + " " + fieldName);
             if (fieldName.equalsIgnoreCase(capitalizeFully(field.getString("fieldName")).replace("_", ""))) {
                 return field.getString("fhirPath");
             }
@@ -298,8 +316,8 @@ public class Main {
     }
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
-    public record PatientRecord(
-            String patientId,
+    public record CustomDemographicData(
+            String auxId,
             String givenName,
             String familyName,
             String gender,
@@ -308,6 +326,20 @@ public class Main {
             String phoneNumber,
             String nationalId) {
 
-
     }
+
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record PatientRecord(
+            String patientId,
+            SourceId sourceId,
+            CustomDemographicData demographicData) {
+    }
+
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record SourceId(
+            String uid,
+            String facility,
+            String patient) {
+    }
+
 }
